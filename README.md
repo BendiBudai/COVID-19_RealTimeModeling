@@ -6,4 +6,4 @@ Effective reproduction number estimation with Wallinga and Teunis / Cori methods
 
 Different SIR and SEIR model implementations for different scenarios.
 
-I also visualize the results in R. plots.
+I also visualize the results with R. plots.
