@@ -1,0 +1,773 @@
+#loading packages
+library(installr)
+library(writexl)
+library(runner)
+library(MASS)
+library(R0)
+library(xlsx)
+library(dplyr)
+library(rvest)
+library(janitor)
+library(lubridate)
+library(EpiEstim)
+library(ggplot2)
+library(tidyr)
+library(stringr)
+library(data.table)
+library(reshape2)
+library(gridExtra)
+
+#install required packages
+list.of.packages <-
+  c(
+    "ggplot2",
+    "writexl",
+    "runner",
+    "MASS",
+    "R0",
+    "xlsx",
+    "dplyr",
+    "rvest",
+    "janitor",
+    "lubridate",
+    "EpiEstim",
+    "tidyr",
+    "stringr",
+    "data.table",
+    "reshape2",
+    "gridExtra"
+  )
+new.packages <-
+  list.of.packages[!(list.of.packages %in% installed.packages()[, "Package"])]
+if (length(new.packages))
+  install.packages(new.packages)
+
+#-----------------------------------------------Táblák feltöltése-------------------------------------------------------------------------
+end_date <- as.Date( "2021-01-25") # eddig a dátumig töltődnek a beolvasott táblák.  
+#end_date <- as.Date("2021-01-25")end_date <- as.Date(Sys.Date()) ha az mindig az aktuális "mai" napig töltődjenek.
+
+#functions
+get_covid_info_hun <-
+  function() {
+    covid_info_hun <-
+      read.csv("https://covid.ourworldindata.org/data/owid-covid-data.csv")
+    covid_info_hun <-
+      covid_info_hun[covid_info_hun$location == "Hungary",]
+    covid_info_hun <-
+      covid_info_hun %>% select(
+        date,
+        total_cases,
+        new_cases,
+        total_deaths,
+        new_deaths,
+        total_deaths_per_million,
+        new_deaths_per_million,
+        reproduction_rate,
+        hosp_patients,
+        hosp_patients_per_million,
+        new_tests,
+        total_tests,
+        total_tests_per_thousand,
+        new_tests_per_thousand,
+        positive_rate,
+        stringency_index,
+        population
+      )
+    
+    covid_info_hun <-  subset.data.frame(
+      covid_info_hun,
+      covid_info_hun$date >= "2020-03-04" &
+        covid_info_hun$date <= end_date
+    )
+    return(covid_info_hun)
+  }
+
+save_plot_asPNG <-
+  function(path,
+           plots_to_save,
+           myWidth = 1000,
+           myHight = 700) {
+    tmp = 1
+    for (plo in plots_to_save) {
+      myName <-
+        paste(get("path"), deparse(substitute(tmp)), ".png", sep = "")
+      png(filename = myName,
+          width = myWidth,
+          height = myHight)
+      plot(plo)
+      dev.off()
+      print("saved:")
+      print(tmp)
+      tmp <-   tmp + 1
+    }
+  }
+get_cumulative_incidence_df <-
+  function() {
+    cumulative.incidence_df <- as.data.frame(ts_for_res_HUN)
+    population <- c(rep(9917344, nrow(cumulative.incidence_df)))
+    cumulative.incidence_df$populaltion <- population
+    cumulative_cases_14day_window <-
+      runner(cumulative.incidence_df$I,
+             k = 14,
+             f = sum)
+    cumulative.incidence_df$cumulative_cases_14day_window <-
+      cumulative_cases_14day_window
+    cumulative.incidence_df <-
+      transform(
+        cumulative.incidence_df,
+        cumulative.incidence = (
+          cumulative.incidence_df$cumulative_cases_14day_window / 9917344
+        ) * 100000
+      )
+    return(cumulative.incidence_df)
+    
+  }
+
+get_excess_death_hun <- function() {
+  result <-
+    read.csv(
+      "https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/excess_mortality/excess_mortality.csv"
+    )
+  result <-
+    result[result$location == "Hungary",]
+  result <-
+    result %>% select(
+      date,
+      p_scores_all_ages,
+      p_scores_15_64,
+      p_scores_65_74,
+      p_scores_75_84,
+      p_scores_85plus
+    )
+  
+  result <-  subset.data.frame(result,
+                               result$date >= "2020-03-04" &
+                                 result$date <= end_date)
+  
+  
+  return(result)
+}
+
+#-------------------------############---------------------------------------############---------------------------------------############-----
+
+ts_for_res_HUN <-
+  data.frame("dates" = as.Date(get_covid_info_hun()$date),
+             "I" = get_covid_info_hun()$new_cases)
+
+covid_data_hun <- get_covid_info_hun()
+
+excess_death_hun <- get_excess_death_hun()
+
+cumulative.incidence_df <- get_cumulative_incidence_df()
+
+
+#----- Wallinga és Teunis R becslés (Time-Dependent) --------------------############---------------------------------------############------------
+epid_curve_incid <- ts_for_res_HUN$I
+epid_curve_dates <- ts_for_res_HUN$dates
+
+epid_curve_incid <-
+  replace(epid_curve_incid, epid_curve_incid == 0, 1)     # replace zeros
+
+mGT <- generation.time("gamma", c(4.7, 2.9))
+
+wallinga_Teunis_TD_R0 <-
+  est.R0.TD(
+    epid_curve_incid,
+    mGT,
+    end = length(epid_curve_incid),
+    nsim = 1000,
+    t = epid_curve_dates
+  )
+TD.weekly <- smooth.Rt(wallinga_Teunis_TD_R0, 7)
+plot(TD.weekly)
+
+#-------------------------############---------------------------------------############---------------------------------------############-----
+mean_covid_si <-
+  4.7                                                      #serial interval átlag
+sd_covid_si <-
+  2.9                                                      #serial interval  normál eloszlás
+dicrete_si_distr <-
+  discr_si(seq(0, 99), mean_covid_si, sd_covid_si)         #serial interval diszkrét eloszlás
+
+t_start <- seq(5, nrow(ts_for_res_HUN) - 6)
+t_end <- t_start + 6
+
+R_instantaneous <- estimate_R(
+  ts_for_res_HUN,
+  method = "non_parametric_si",
+  config = list(
+    si_distr = dicrete_si_distr,
+    t_start = t_start,
+    t_end = t_end
+  )
+)
+
+#plot(R_instantaneous_weekly)
+#lot(R_instantaneous_weekly, legend = FALSE)
+
+#plot_R_instantaneous_EpidCurve <-
+#  plot(R_instantaneous, "incid")
+#plot_R_instantaneous_weekly_EpidCurve
+
+plot_R_instantaneous <- plot(R_instantaneous, "R")
+plot_R_instantaneous
+
+#-------------------------############---------------------------------------############---------------------------------------############-----
+extracted_R_values_wallinga <-
+  data.frame(
+    "date" = wallinga_Teunis_TD_R0[["epid"]][["t"]],
+    "mean_R" = wallinga_Teunis_TD_R0[["R"]],
+    "lower_conf" = wallinga_Teunis_TD_R0[["conf.int"]][["lower"]],
+    "upper_conf" = wallinga_Teunis_TD_R0[["conf.int"]][["upper"]]
+  )
+extracted_R_values_wallinga <-
+  extracted_R_values_wallinga[-nrow(extracted_R_values_wallinga),] # remove last row (0)
+extracted_R_values_wallinga <-
+  tail(extracted_R_values_wallinga,-9)                             # remove first week + 3 days
+
+
+extracted_R_values_instantaneous <-
+  data.frame(
+    "start_date" = plot_R_instantaneous[["data"]][["start"]],
+    "end_date" = plot_R_instantaneous[["data"]][["end"]],
+    "mean_R" = plot_R_instantaneous[["data"]][["meanR"]],
+    "lower_conf" = plot_R_instantaneous[["data"]][["lower"]],
+    "upper_conf" = plot_R_instantaneous[["data"]][["upper"]]
+  )
+
+#-----------Grafikonok--------------############---------------------------------------############---------------------------------------############-----
+
+
+#1) kimulatív incidencia + incidencia
+plot_cumulative.incidence <-
+  ggplot(cumulative.incidence_df,
+         aes(x = as.Date(dates), y = cumulative.incidence)) + geom_line(color = "steelblue", size =
+                                                                          1) + labs(x = "Dátum", y = "Kumilatív incidencia (100 000 fore)") + scale_x_date(
+                                                                            date_breaks = "1 month",
+                                                                            date_labels = "%b-%Y",
+                                                                            date_minor_breaks = "1 week"
+                                                                          ) + geom_vline(
+                                                                            xintercept  = as.Date("2020-06-22"),
+                                                                            color = "red4",
+                                                                            size = 1,
+                                                                            linetype = "dotted"
+                                                                          ) + geom_vline(
+                                                                            xintercept  = as.Date("2021-01-25"),
+                                                                            color = "red4",
+                                                                            size = 1,
+                                                                            linetype = "dotted"
+                                                                          )
+
+plot_cumulative.incidence
+
+plot_incidence <-
+  ggplot(cumulative.incidence_df,
+         aes(x = as.Date(dates), y = I, group=1))  + geom_point(color =
+                                                                  "black") + labs(x = "Dátum", y = "Jelentett napi esetszám (fo)") + stat_smooth(
+                                                                    method = "gam",
+                                                                    formula = y ~ s(x, k = 14),
+                                                                    size = 0.5,
+                                                                    se = TRUE,
+                                                                    level = 0.95
+                                                                  ) + scale_x_date(
+                                                                    date_breaks = "1 month",
+                                                                    date_labels = "%b-%Y",
+                                                                    date_minor_breaks = "1 week"
+                                                                  ) + geom_vline(
+                                                                    xintercept  = as.Date("2020-06-22"),
+                                                                    color = "red4",
+                                                                    size = 1,
+                                                                    linetype = "dotted"
+                                                                  ) + geom_vline(
+                                                                    xintercept  = as.Date("2021-01-25"),
+                                                                    color = "red4",
+                                                                    size = 1,
+                                                                    linetype = "dotted"
+                                                                  )
+plot_incidence
+
+
+#2) A halálesetek simító görbéje
+plot_new_deaths <-
+  ggplot(covid_data_hun, aes(x = as.Date(date), y = new_deaths, group = 1)) + geom_point(color =
+                                                                                           "black") + labs(x = "Dátum", y = "Bejelentett napi halálesetek száma (fo)") + stat_smooth(
+                                                                                             method = "gam",
+                                                                                             formula = y ~ s(x, k = 14),
+                                                                                             size = 0.5,
+                                                                                             se = TRUE,
+                                                                                             level = 0.95
+                                                                                           ) + scale_x_date(
+                                                                                             date_breaks = "1 month",
+                                                                                             date_labels = "%b-%Y",
+                                                                                             date_minor_breaks = "1 week"
+                                                                                           ) + geom_vline(
+                                                                                             xintercept  = as.Date("2020-06-22"),
+                                                                                             color = "red4",
+                                                                                             size = 1,
+                                                                                             linetype = "dotted"
+                                                                                           ) + geom_vline(
+                                                                                             xintercept  = as.Date("2021-01-25"),
+                                                                                             color = "red4",
+                                                                                             size = 1,
+                                                                                             linetype = "dotted"
+                                                                                           )
+plot_new_deaths
+#-----WORK IN PROGRESS...----------------------------------------------------------------------------------------------------------------------------
+# A halálesetek simító görbéje + predikció
+# lst  <-
+#   covid_data_hun[(nrow(covid_data_hun) - 13):nrow(covid_data_hun), ]
+#
+# lst <-
+#   lst %>% select(date,new_deaths)
+#
+#
+#
+# glm <- glm(new_deaths ~ as.Date(date), family = poisson(link = "log"), data = lst)
+#
+# date <- tail(lst, n = 1)
+#
+# mydate <- as.Date(date$date)
+#
+# pred <- predict(glm,
+#                 newdata = data.frame(date = seq(
+#                   as.Date(mydate - 59), as.Date(mydate + 10), by = "days"
+#                 )),
+#                 type = "response",
+#                 se.fit = TRUE)
+#
+# critval <- 1.96 ## approx 95% CI
+# upr <- pred$fit + (critval * pred$se.fit)
+# lwr <- pred$fit - (critval * pred$se.fit)
+# fit <- pred$fit
+#
+# prediction <- data.frame(dates=seq(as.Date(mydate-59), as.Date(mydate+10), by="days"), fit, lwr, upr)
+#
+# plot_test_new_deaths_prediction <-
+#   ggplot(covid_data_hun, aes(x = date, y = new_deaths)) + geom_point() + stat_smooth(method = "gam", formula = y ~ s(x, k = 14)) +
+#   geom_ribbon(
+#     data = prediction,
+#     aes(
+#       y = fit,
+#       ymin = lwr,
+#       ymax = upr,
+#       fill = "white"
+#     ),
+#     alpha = 0.3,
+#     show.legend = FALSE
+#   ) + geom_line(
+#     data = prediction,
+#     aes(x = dates, y = fit),
+#     color = "red",
+#     show.legend = FALSE
+#   ) +
+#   annotate(
+#     "rect",
+#     ymin = -Inf,
+#     ymax = Inf,
+#     xmin = mydate - 13,
+#     xmax = mydate,
+#     alpha = 0.1,
+#     fill = "orange"
+#    ) +
+#    scale_x_date(
+#      date_breaks = "1 month",
+#      date_labels = "%b-%Y",
+#      date_minor_breaks = "1 week"
+#    )
+#
+# plot_test_new_deaths_prediction
+#---------------------------------------------------------------------------------------------------------------------------------
+#3) tesztpozitivás simító görbéje
+plot_test_positive_rate <-
+  ggplot(covid_data_hun,
+         aes(
+           x = as.Date(date),
+           y = positive_rate * 100,
+           group = 1,
+           colour = (positive_rate * 100) > 10
+         )) + geom_point() + labs(x = "Dátum", y = "Teszt pozitivitás aránya (%)") + stat_smooth(
+           method = "gam",
+           formula = y ~ s(x, k = 14),
+           size = 0.5,
+           se = TRUE,
+           level = 0.95
+         ) +
+  scale_colour_manual(name = 'Pozitívitás aránya > 10%', values = setNames(c('red', 'green'), c(T, F)))  +  scale_x_date(
+    date_breaks = "1 month",
+    date_labels = "%b-%Y",
+    date_minor_breaks = "1 week"
+  )  + geom_vline(
+    xintercept  = as.Date("2020-06-22"),
+    color = "red4",
+    size = 1,
+    linetype = "dotted"
+  ) + geom_vline(
+    xintercept  = as.Date("2021-01-25"),
+    color = "red4",
+    size = 1,
+    linetype = "dotted"
+  )
+
+plot_test_positive_rate
+
+
+#4) kórházban ápoltak
+plot_hosp_patients <-
+  ggplot(covid_data_hun, aes(x = as.Date(date), y = hosp_patients, group = 1)) + geom_line(color =
+                                                                                             "steelblue", size = 0.9) + labs(x = "Dátum", y = "Korházban Ápoltak száma (fo)") + scale_x_date(
+                                                                                               date_breaks = "1 month",
+                                                                                               date_labels = "%b-%Y",
+                                                                                               date_minor_breaks = "1 week"
+                                                                                             ) + geom_vline(
+                                                                                               xintercept  = as.Date("2020-06-22"),
+                                                                                               color = "red4",
+                                                                                               size = 1,
+                                                                                               linetype = "dotted"
+                                                                                             ) + geom_vline(
+                                                                                               xintercept  = as.Date("2021-01-25"),
+                                                                                               color = "red4",
+                                                                                               size = 1,
+                                                                                               linetype = "dotted"
+                                                                                             )
+plot_hosp_patients
+
+#5) többlethalálozás
+plot_excess_deaths_all <-
+  ggplot(excess_death_hun,
+         aes(x = as.Date(date), y = p_scores_all_ages, group = 1)) + geom_line(color = "steelblue", size =
+                                                                                 1) + labs(x = "Dátum", y = "Halálozási többlet (2015-2019 idoszakhoz viszonyítva %)") + scale_x_date(
+                                                                                   date_breaks = "1 month",
+                                                                                   date_labels = "%b-%Y",
+                                                                                   date_minor_breaks = "1 week"
+                                                                                 ) + geom_vline(
+                                                                                   xintercept  = as.Date("2020-06-22"),
+                                                                                   color = "red4",
+                                                                                   size = 1,
+                                                                                   linetype = "dotted"
+                                                                                 ) + geom_vline(
+                                                                                   xintercept  = as.Date("2021-01-25"),
+                                                                                   color = "red4",
+                                                                                   size = 1,
+                                                                                   linetype = "dotted"
+                                                                                 )
+plot_excess_deaths_all
+
+#6) korlátozó intézkedési index
+plot_stringency_index <-
+  ggplot(covid_data_hun, aes(x = as.Date(date), y = stringency_index, group = 1)) + geom_line(color = "steelblue", size =
+                                                                                                1) + labs(x = "Dátum", y = "Korlátozási Index") + scale_x_date(
+                                                                                                  date_breaks = "1 month",
+                                                                                                  date_labels = "%b-%Y",
+                                                                                                  date_minor_breaks = "1 week"
+                                                                                                ) + geom_vline(
+                                                                                                  xintercept  = as.Date("2020-06-22"),
+                                                                                                  color = "red4",
+                                                                                                  size = 1,
+                                                                                                  linetype = "dotted"
+                                                                                                ) + geom_vline(
+                                                                                                  xintercept  = as.Date("2021-01-25"),
+                                                                                                  color = "red4",
+                                                                                                  size = 1,
+                                                                                                  linetype = "dotted"
+                                                                                                )
+plot_stringency_index
+
+#Járvángörbe és becslés a jövore nézve, az utolsó két hét adatai alapján
+plot_epid_curve <-
+  ggplot(ts_for_res_HUN, aes(x = dates, y = I)) + geom_point() + stat_smooth(
+    method = "gam",
+    formula = y ~ s(x, k = 14),
+    size = 0.5,
+    se = TRUE,
+    level = 0.95
+  ) + scale_x_date(
+    date_breaks = "1 month",
+    date_labels = "%b-%Y",
+    date_minor_breaks = "1 week"
+  ) + labs(x = "Dátum", y = "Napi esetszám (fo)")  + geom_vline(
+    xintercept  = as.Date("2020-06-22"),
+    color = "red4",
+    size = 1,
+    linetype = "dotted"
+  ) + geom_vline(
+    xintercept  = as.Date("2021-01-25"),
+    color = "red4",
+    size = 1,
+    linetype = "dotted"
+  )
+plot_epid_curve
+
+lst  <-
+  ts_for_res_HUN[(nrow(ts_for_res_HUN) - 13):nrow(ts_for_res_HUN),]
+
+glm <- glm(I ~ dates, family = poisson(link = "log"), data = lst)
+
+date <- tail(lst, n = 1)
+
+mydate <- as.Date(date$dates)
+
+pred <- predict(glm,
+                newdata = data.frame(dates = seq(
+                  as.Date(mydate - 59), as.Date(mydate + 10), by = "days"
+                )),
+                type = "response",
+                se.fit = TRUE)
+
+critval <- 1.96 ## approx 95% CI
+upr <- pred$fit + (critval * pred$se.fit)
+lwr <- pred$fit - (critval * pred$se.fit)
+fit <- pred$fit
+
+prediction <-
+  data.frame(dates = seq(as.Date(mydate - 59), as.Date(mydate + 10), by =
+                           "days"), fit, lwr, upr)
+
+
+
+plot_epid_curve_prediction <-
+  ggplot(ts_for_res_HUN, aes(x = dates, y = I)) + geom_point() + stat_smooth(method = "gam", formula = y ~ s(x, k = 14)) +
+  geom_ribbon(
+    data = prediction,
+    aes(
+      y = fit,
+      ymin = lwr,
+      ymax = upr,
+      fill = "white"
+    ),
+    alpha = 0.3,
+    show.legend = FALSE
+  ) + geom_line(
+    data = prediction,
+    aes(x = dates, y = fit),
+    color = "red",
+    show.legend = FALSE
+  ) +
+  annotate(
+    "rect",
+    ymin = -Inf,
+    ymax = Inf,
+    xmin = mydate - 13,
+    xmax = mydate,
+    alpha = 0.1,
+    fill = "orange"
+  ) + scale_x_date(
+    date_breaks = "1 month",
+    date_labels = "%b-%Y",
+    date_minor_breaks = "1 week"
+  )  + geom_vline(
+    xintercept  = as.Date("2020-06-22"),
+    color = "red4",
+    size = 1,
+    linetype = "dotted"
+  ) + geom_vline(
+    xintercept  = as.Date("2021-01-25"),
+    color = "red4",
+    size = 1,
+    linetype = "dotted"
+  )
+
+plot_epid_curve_prediction
+
+
+
+# --------------------------------------R Becslések-------------------------------------------------------------------------------------
+
+#8) R0 csomag => R0 alap reprodukciós szám becslás Wallinga módszerrel 95%-os megbízhatósági tartománnyal
+plot(wallinga_Teunis_TD_R0)     # R(time)
+plot(TD.weekly)                 #R(time-weekly)
+
+plot_extr_wallinga_R <-
+  ggplot(extracted_R_values_wallinga,
+         aes(x = as.Date(date), y = mean_R)) + geom_line(color = "black", size =
+                                                           1) + labs(x = "Dátum", y = "Kohorsz reprodukciós szám becslés") + scale_x_date(
+                                                             date_breaks = "1 month",
+                                                             date_labels = "%b-%Y",
+                                                             date_minor_breaks = "1 week"
+                                                           ) +  geom_ribbon(
+                                                             data = extracted_R_values_wallinga,
+                                                             aes(
+                                                               y = mean_R,
+                                                               ymin = lower_conf,
+                                                               ymax = upper_conf,
+                                                                fill = "red"),
+                                                               alpha = 0.3,
+                                                               show.legend = FALSE
+                                                             ) + geom_hline(
+                                                               yintercept = 1,
+                                                               color = "blue4",
+                                                               size = 0.55,
+                                                               linetype = "dashed"
+                                                              ) +
+                                                               geom_rect(
+                                                                 aes(
+                                                                   xmin = as.Date("2020-03-04"),
+                                                                   xmax = as.Date("2020-08-07"),
+                                                                   ymin = 0,
+                                                                   ymax = Inf
+                                                                 ),
+                                                                 fill =
+                                                                   "green",
+                                                                 alpha = .002
+                                                               ) +
+                                                               geom_rect(
+                                                                 aes(
+                                                                   xmin = as.Date("2020-08-07"),
+                                                                   xmax = as.Date("2021-01-14"),
+                                                                   ymin = 0,
+                                                                   ymax = Inf
+                                                                 ),
+                                                                 fill = "red",
+                                                                 alpha = .002
+                                                               ) +
+                                                               geom_rect(
+                                                                 aes(
+                                                                   xmin = as.Date("2021-01-14"),
+                                                                   xmax = as.Date(end_date),
+                                                                   ymin = 0,
+                                                                   ymax = Inf
+                                                                 ),
+                                                                 fill = "green",
+                                                                 alpha = .002
+                                                               )  + geom_vline(
+                                                                 xintercept  = as.Date("2020-06-22"),
+                                                                 color = "blue3",
+                                                                 size = 1,
+                                                                 linetype = "dotted"
+                                                               )+
+                                                              geom_vline(
+                                                                 xintercept  = as.Date("2021-01-25"),
+                                                                 color = "blue3",
+                                                                 size = 1,
+                                                                 linetype = "dotted"
+                                                               )
+                                                           
+
+
+plot_extr_wallinga_R
+
+#9) EpiEstim csomag =>
+plot(R_instantaneous_weekly, "R")
+
+plot_extr_instantaneous_R <-
+  ggplot(extracted_R_values_instantaneous,
+         aes(x = as.Date(end_date), y = mean_R)) + geom_line(color = "steelblue", size = 1) + labs(x = "Dátum", y = "Instantaneous reprodukciós szám becslés") + scale_x_date(
+           date_breaks = "1 month",
+           date_labels = "%b-%Y",
+           date_minor_breaks = "1 week"
+         ) +  geom_ribbon(
+           data = extracted_R_values_instantaneous,
+           aes(
+             y = mean_R,
+             ymin = lower_conf,
+             ymax = upper_conf,
+             fill = "white",
+           ),
+           alpha = 0.3,
+           show.legend = FALSE
+         ) +
+  labs(title = "Cori R becslés\n",
+       x = "Dátum",
+       y = "R érték")  +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.title.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title.y = element_text(size = 12),
+    plot.title = element_text(size = 26, face = "bold", color = "darkgreen")
+  ) + geom_hline(
+    yintercept = 1,
+    color = "blue4",
+    size = 0.55,
+    linetype = "dashed"
+  ) + geom_vline(
+    xintercept  = as.Date("2020-06-22"),
+    color = "red4",
+    size = 1,
+    linetype = "dotted"
+  ) + geom_vline(
+    xintercept  = as.Date("2021-01-25"),
+    color = "red4",
+    size = 1,
+    linetype = "dotted"
+  )
+
+
+plot_extr_instantaneous_R
+#10) Rwill + Rcor
+plot_wallinga_cori <-
+  ggplot(data = NULL, aes(extracted_R_values_wallinga$date)) +
+  
+  geom_line(data =  extracted_R_values_wallinga,
+            aes(y = mean_R, colour = "green"),
+            group = 1) +  geom_ribbon(
+              data = extracted_R_values_wallinga,
+              aes(
+                y = mean_R,
+                ymin = lower_conf,
+                ymax = upper_conf,
+                fill = "white"
+              ),
+              alpha = 0.2,
+              show.legend = FALSE
+            ) +
+  geom_line(data = extracted_R_values_instantaneous,
+            aes(y = mean_R, colour = "blue"),
+            group = 1)  +  geom_ribbon(
+              data = extracted_R_values_instantaneous,
+              aes(
+                y = mean_R,
+                ymin = lower_conf,
+                ymax = upper_conf,
+                fill = "black"
+              ),
+              alpha = 0.3,
+              show.legend = FALSE
+            ) + scale_x_date(
+              date_breaks = "1 month",
+              date_labels = "%b-%Y",
+              date_minor_breaks = "1 week"
+            ) +
+  labs(
+    title = "Cori és Wallinga R becslés\n",
+    x = "Dátum",
+    y = "R érték",
+    color = "Jelmagyarázat\n"
+  )  +
+  scale_color_manual(labels = c("Wallinga", "Cori"),
+                     values = c("blue", "red")) +
+  geom_hline(yintercept = 1,
+             color = "black",
+             size = 0.6) + geom_vline(
+               xintercept  = as.Date("2020-06-22"),
+               color = "red4",
+               size = 1,
+               linetype = "dotted"
+             ) + geom_vline(
+               xintercept  = as.Date("2021-01-25"),
+               color = "red4",
+               size = 1,
+               linetype = "dotted"
+             )
+
+plot_wallinga_cori
+#--------------Save plots to file--------------------
+#plot_list <-
+#   list(
+#     plot_cumulative.incidence,
+#     plot_test_new_deaths,
+#     plot_test_positive_rate,
+#     plot_hosp_patients,
+#     plot_excess_deaths,
+#     plot_stringency_index,
+#     plot_R_instantaneous_weekly_EpidCurve,
+#     plot_R_instantaneous_weekly,
+#     plot_epid_curve,
+#     plot_epid_curve_prediction,
+#     plot_kumInc_AND_stringencyIndex,
+#     plot_extr_wallinga_R,
+#     plot_extr_instantaneous_R,
+#     plot_wallinga_cori
+#   )
+#
+# save_plot_asPNG(plots_to_save =  plot_list, path = "C:\\Users\\User\\Desktop\\")

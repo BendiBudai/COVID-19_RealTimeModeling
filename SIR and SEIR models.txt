@@ -1,0 +1,1265 @@
+#Load required libraries
+library(ggplot2)
+library(deSolve)
+library(reshape2)
+
+#install required packages
+list.of.packages <-
+  c(
+    "ggplot2",
+    "deSolve",
+    "reshape2"
+  )
+new.packages <-
+  list.of.packages[!(list.of.packages %in% installed.packages()[, "Package"])]
+if (length(new.packages))
+  install.packages(new.packages)
+
+#Egyszerű SIR Model
+
+#For an SIR model, it can be calculated as :
+#R=BETA/GAMMA
+
+#Model inputs
+
+initial_state_values = c(S = 9914347, I = 1, R = 0)
+parameters = c(gamma = 0.20, beta = 0.5)
+
+# Idő egység
+
+time = seq(from = 1, to = 400, by = 1)
+
+# SIR model függvény:
+sir_model <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    N = S + I + R
+    lambda = beta * (I / N)    # risk of infection of an individual / unit time
+    dS = -lambda * S
+    dI = lambda * S - gamma * I
+    dR = gamma * I
+    
+    return(list(c(dS, dI, dR)))
+  })
+}
+
+
+#A differnciál egyenlet megoldása
+output_1 <-
+  as.data.frame(ode(
+    y = initial_state_values,
+    func = sir_model,
+    parms = parameters,
+    times = time
+  ))
+out_long_1 = melt(output_1, id = "time")
+
+# A fogékonyak, fertőzöttek és gyógyultak arányának időbeli ábrázolása
+ggplot(data = out_long_1,
+       aes(
+         x = time,
+         y = value / 100000,
+         colour = variable,
+         group = variable
+       )) +
+  geom_line() + xlab("Idő (napok)") + ylab("Lakosság hányada (%)") + scale_color_discrete(name =
+                                                                                            "Állapot")
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+#Oltás hatása / Critical Vaccination Threshold: nyáj immunitáshoz szükséges átoltottsági arány
+#p=1-(1/Ro)
+
+
+# Model bemenetek
+
+initial_state_values = c(S = 0.67 * 9914347,
+                         I = 1,
+                         R = 0.33 * 9914347)
+parameters = c(gamma = 0.20, beta = 0.5)
+
+# Idő egység
+
+time = seq(from = 1, to = 3 * 365, by = 1)
+
+#SIR model függvény:
+sir_model3 <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    N = S + I + R
+    lambda = beta * (I / N)
+    dS = -lambda * S
+    dI = lambda * S - gamma * I
+    dR = gamma * I
+    
+    return(list(c(dS, dI, dR)))
+  })
+}
+
+# A differnciál egyenlet megoldása:
+output_2 <-
+  as.data.frame(ode(
+    y = initial_state_values,
+    func = sir_model3,
+    parms = parameters,
+    times = time
+  ))
+out_long_2 = melt(output_2, id = "time")
+
+# A prevalencia időbeli ábrázolása
+ggplot(data = out_long_2,
+       aes(
+         x = time,
+         y = value / 100000,
+         colour = variable,
+         group = variable
+       )) +
+  geom_line() +
+  xlab("Idő (napok)") +
+  ylab("Prevalemcia (%)") + scale_color_discrete(name = "Állapot")
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+# Immunitás csökkenés hatása
+
+initial_values = c(S = 9914347, I = 1, R = 0)
+parameters = c(gamma = 0.2 * 365,
+               beta = 0.5 * 365,
+               sigma = 20 / (10))
+
+# Idő egység
+
+time = seq(from = 1, to = 10, by = 1 / 365)
+
+#SIR model függvény:
+sir_model4 <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    N = S + I + R
+    lambda = beta * (I / N)
+    dS = -lambda * S + sigma * R
+    dI = lambda * S - gamma * I
+    dR = gamma * I - sigma * R
+    
+    return(list(c(dS, dI, dR)))
+  })
+}
+
+
+
+# A differnciál egyenlet megoldása:
+output_3 <-
+  as.data.frame(ode(
+    y = initial_values,
+    func = sir_model4,
+    parms = parameters,
+    times = time
+  ))
+out_long_3 = melt(output_3, id = "time")
+
+#A prevalencia időbeli ábrázolása
+ggplot(data = out_long_3,
+       aes(
+         x = time,
+         y = value / 100000,
+         
+         colour = variable,
+         group = variable
+       )) +
+  geom_line() +
+  xlab("Idő (évek)") +
+  ylab("Prevalencia (%)") + scale_color_discrete(name = "Állapot")
+
+#::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+#plot only I group ------------------------------------------------------------
+
+plot_only_immun_SIR <- ggplot(data = output_3,
+                              aes(
+                                x = time,
+                                y = I / 100000,
+
+                                colour ="I "
+
+                              )) +
+  geom_line() +
+  xlab("Idő (évek)") +
+  ylab("Prevalencia (%)") + scale_color_discrete(name = "Jelmagyarázat")
+plot_only_immun_SIR
+
+plot_only_vacc_SIR <- ggplot(data = output_2,
+                              aes(
+                                x = time,
+                                y = I / 100000,
+                                
+                                colour ="I "
+                                
+                              )) +
+  geom_line() +
+  xlab("Idő (napok)") +
+  ylab("Prevalencia (%)") + scale_color_discrete(name = "Jelmagyarázat")
+plot_only_vacc_SIR
+
+plot_only_SIR <- ggplot(data = output_1,
+                        aes(
+                          x = time,
+                          y = I / 100000,
+                          
+                          colour ="I "
+                          
+                        )) +
+  geom_line() +
+  xlab("Idő (napok)") +
+  ylab("Prevalencia (%)") + scale_color_discrete(name = "Jelmagyarázat")
+plot_only_SIR
+
+#-------------------------------------------------------------------------------
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+#-------------------------------------------------------------------------------
+
+#SEIR model
+
+
+seir_model = function (current_timepoint,
+                       state_values,
+                       parameters)
+{
+  # create state variables (local variables)
+  S = state_values [1]        # érzékenyek
+  E = state_values [2]        # exponált
+  I = state_values [3]        # fertőzött
+  R = state_values [4]        # gyógyult
+  
+  with (as.list (parameters),
+        {
+          # compute derivatives
+          dS = (-beta * S * I)
+          dE = (beta * S * I) - (delta * E)
+          dI = (delta * E) - (gamma * I)
+          dR = (gamma * I)
+          
+          # combine results
+          results = c (dS, dE, dI, dR)
+          list (results)
+        })
+}
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# Csökkenő napi kontakt szám (social distance)
+
+contact_rate = 7                       # Kontaktok napi száma
+transmission_probability = 0.075       # Átadás valószínűsége
+infectious_period = 5                  # Fertőző időszak
+latent_period = 2                      # Lappangási idő
+
+
+beta_value = contact_rate * transmission_probability
+gamma_value = 1 / infectious_period
+delta_value = 1 / latent_period
+
+
+Ro = beta_value / gamma_value
+
+# Kezdeti paraméterek:
+parameter_list = c (beta = beta_value,
+                    gamma = gamma_value,
+                    delta = delta_value)
+
+W = 9917336        # Fogékonyak száma
+X = 1              # Fertőzöttek száma
+Y = 0              # Gyógyultak száma
+Z = 7              # Exponáltak száma
+
+N = W + X + Y + Z
+
+initial_values = c (
+  S = W / N,
+  E = X / N,
+  I = Y / N,
+  R = Z / N
+)
+
+timepoints = seq (0, 500, by = 1)
+
+output = lsoda (initial_values, timepoints, seir_model, parameter_list)
+
+plot (I ~ time,
+      data = output,
+      type = 'l',
+      col = 'red')
+
+#result 1
+Results_SIER <- output
+write.table(Results_SIER, "RES_SIER.txt")
+
+
+plot_SEIR_1 <- ggplot(data = NULL) +
+  geom_line(data = as.data.frame(Results_SIER),
+            aes(
+              x = time,
+              y = S*100,
+              colour = "red",
+              group = 1
+            )) + geom_line(data = as.data.frame(Results_SIER),
+                           aes(
+                             x = time,
+                             y = E*100,
+                             colour = "purple",
+                             group = 1
+                           )) + geom_line(data = as.data.frame(Results_SIER),
+                                          aes(
+                                            x = time,
+                                            y = I*100,
+                                            colour = "green",
+                                            group = 1
+                                          )) + geom_line(data = as.data.frame(Results_SIER),
+                                                         aes(
+                                                           x = time,
+                                                           y = R*100,
+                                                           colour = "blue",
+                                                           group = 1
+                                                         )) +
+  labs(
+    title = "Egyszerű SEIR modell",
+    x = "Idő (napok)",
+    y = "Prevalencia (%)",
+    color = "Állapot"
+  )  +
+  scale_color_manual(
+    labels = c("R", "I", "E", "S"),
+    values = c("red", "green", "purple", "blue")
+  )
+
+plot_SEIR_1
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+contact_rate = 5                       # Kontaktok napi száma 5
+transmission_probability = 0.075       # Átadás valószínűsége  0.075
+infectious_period = 5                  # Fertőző időszak
+latent_period = 2                      # Lappangási idő
+
+
+beta_value = contact_rate * transmission_probability
+gamma_value = 1 / infectious_period
+delta_value = 1 / latent_period
+
+
+Ro = beta_value / gamma_value
+
+parameter_list = c (beta = beta_value,
+                    gamma = gamma_value,
+                    delta = delta_value)
+
+W = 9917338        # Fogékonyak száma
+X = 1              # Fertőzöttek száma
+Y = 0              # Gyógyultak száma
+Z = 5              # Exponáltak száma
+
+N = W + X + Y + Z
+
+initial_values2 = c (
+  S = W / N,
+  E = X / N,
+  I = Y / N,
+  R = Z / N
+)
+
+timepoints = seq (0, 500, by = 1)
+
+output2 = lsoda (initial_values2, timepoints, seir_model, parameter_list)
+
+#result 2
+Results_SIER2 <- output2
+write.table(Results_SIER2, "RES_SIER_SD5.txt")
+
+plot_SEIR_2 <- ggplot(data = NULL) +
+  geom_line(data = as.data.frame(Results_SIER2),
+            aes(
+              x = time,
+              y = S*100,
+              colour = "red",
+              group = 1
+            )) + geom_line(data = as.data.frame(Results_SIER2),
+                           aes(
+                             x = time,
+                             y = E*100,
+                             colour = "purple",
+                             group = 1
+                           )) + geom_line(data = as.data.frame(Results_SIER2),
+                                          aes(
+                                            x = time,
+                                            y = I*100,
+                                            colour = "green",
+                                            group = 1
+                                          )) + geom_line(data = as.data.frame(Results_SIER2),
+                                                         aes(
+                                                           x = time,
+                                                           y = R*100,
+                                                           colour = "blue",
+                                                           group = 1
+                                                         )) +
+  labs(
+    title = "Egyszerű SEIR modell",
+    x = "Idő (napok)",
+    y = "Prevalencia (%)",
+    color = "Állapot"
+  )  +
+  scale_color_manual(
+    labels = c("R", "I", "E", "S"),
+    values = c("red", "green", "purple", "blue")
+  )
+
+plot_SEIR_2
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+contact_rate = 4                       # Kontaktok napi száma
+transmission_probability = 0.075       # Átadás valószínűsége
+infectious_period = 5                  # Fertőző időszak
+latent_period = 2                      # Lappangási idő
+
+
+beta_value = contact_rate * transmission_probability
+gamma_value = 1 / infectious_period
+delta_value = 1 / latent_period
+
+
+Ro = beta_value / gamma_value
+
+parameter_list = c (beta = beta_value,
+                    gamma = gamma_value,
+                    delta = delta_value)
+
+W = 9917339        # Fogékonyak száma
+X = 1              # Fertőzöttek száma
+Y = 0              # Gyógyultak száma
+Z = 4              # Exponáltak száma
+
+N = W + X + Y + Z
+
+initial_values3 = c (
+  S = W / N,
+  E = X / N,
+  I = Y / N,
+  R = Z / N
+)
+
+timepoints = seq (0, 500, by = 1)
+
+output3 = lsoda (initial_values2, timepoints, seir_model, parameter_list)
+
+#result 3
+Results_SIER3 <- output3
+write.table(Results_SIER3, "RES_SIER_SD4.txt")
+
+Results_SIER3 <- ggplot(data = NULL) +
+  geom_line(data = as.data.frame(Results_SIER3),
+            aes(
+              x = time,
+              y = S,
+              colour = "red",
+              group = 1
+            )) + geom_line(data = as.data.frame(Results_SIER3),
+                           aes(
+                             x = time,
+                             y = E,
+                             colour = "purple",
+                             group = 1
+                           )) + geom_line(data = as.data.frame(Results_SIER3),
+                                          aes(
+                                            x = time,
+                                            y = I,
+                                            colour = "green",
+                                            group = 1
+                                          )) + geom_line(data = as.data.frame(Results_SIER3),
+                                                         aes(
+                                                           x = time,
+                                                           y = R,
+                                                           colour = "blue",
+                                                           group = 1
+                                                         )) +
+  labs(
+    title = "Egyszerű SEIR modell",
+    x = "Idő (napok)",
+    y = "Prevalencia (%)",
+    color = "Állapot"
+  )  +
+  scale_color_manual(
+    labels = c("R", "I", "E", "S"),
+    values = c("red", "green", "purple", "blue")
+  )
+
+Results_SIER3
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+plot (
+  xlab = "Idő (napok)",
+  ylab = "Prevalencia [%]",
+  I ~ time,
+  data = output,
+  type = 'l',
+  ylim = c(0, 0.5),
+  col = 'red',
+  lwd = 2
+)
+par (new = TRUE)
+plot (
+  xlab = "Idő (napok)",
+  ylab = "Prevalencia [%]",
+  I ~ time,
+  data = output2,
+  type = 'l',
+  ylim = c(0, 0.5),
+  col = 'orange',
+  lwd = 2
+)
+par (new = TRUE)
+plot (
+  xlab = "Idő (napok)",
+  ylab = "Prevalencia",
+  I ~ time,
+  data = output3,
+  type = 'l',
+  ylim = c(0, 0.5),
+  col = 'green',
+  lwd = 2
+)
+
+text(255, 0.047, "CR=4, TR=0.075",
+     cex = 0.7, col = 'green2')
+text(115, 0.185, "CR=7, TR=0.075",
+     cex = 0.7, col = 'red')
+text(170, 0.1, "CR=5, TR=0.075",
+     cex = 0.7, col = 'orange')
+
+legend(
+  "topright",
+  legend = c(
+    "Kontakszám: 7 / nap - Állandó átadási arány",
+    "Kontakszám: 5 / nap - Állandó átadási arány",
+    "Kontakszám: 4 / nap - Állandó átadási arány"
+  ),
+  col = c("red", "orange", "green"),
+  lty = 1:1,
+  cex = 0.9
+)
+
+
+
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+# Csökkenő átadási valószínűség (maszk használat)
+
+contact_rate = 7                      # Kontaktok napi száma
+transmission_probability = 0.06       # Átadás valószínűsége
+infectious_period = 5                 # Fertőző időszak
+latent_period = 2                     # Lappangási idő
+
+
+beta_value = contact_rate * transmission_probability
+gamma_value = 1 / infectious_period
+delta_value = 1 / latent_period
+
+
+Ro = beta_value / gamma_value
+
+parameter_list = c (beta = beta_value,
+                    gamma = gamma_value,
+                    delta = delta_value)
+
+W = 9917336        # Fogékonyak száma
+X = 1              # Fertőzöttek száma
+Y = 0              # Gyógyultak száma
+Z = 7              # Exponáltak száma
+
+N = W + X + Y + Z
+
+initial_values = c (
+  S = W / N,
+  E = X / N,
+  I = Y / N,
+  R = Z / N
+)
+
+timepoints4 = seq (0, 500, by = 1)
+
+output4 = lsoda (initial_values, timepoints, seir_model, parameter_list)
+
+#result 4
+Results_SIER4 <- output4
+write.table(Results_SIER4, "RES_SIER_TP006.txt")
+
+Results_SIER4 <- ggplot(data = NULL) +
+  geom_line(data = as.data.frame(Results_SIER4),
+            aes(
+              x = time,
+              y = S,
+              colour = "red",
+              group = 1
+            )) + geom_line(data = as.data.frame(Results_SIER4),
+                           aes(
+                             x = time,
+                             y = E,
+                             colour = "purple",
+                             group = 1
+                           )) + geom_line(data = as.data.frame(Results_SIER4),
+                                          aes(
+                                            x = time,
+                                            y = I,
+                                            colour = "green",
+                                            group = 1
+                                          )) + geom_line(data = as.data.frame(Results_SIER4),
+                                                         aes(
+                                                           x = time,
+                                                           y = R,
+                                                           colour = "blue",
+                                                           group = 1
+                                                         )) +
+  labs(
+    title = "Egyszerű SEIR modell",
+    x = "Idő (napok)",
+    y = "Prevalencia (%)",
+    color = "Állapot"
+  )  +
+  scale_color_manual(
+    labels = c("R", "I", "E", "S"),
+    values = c("red", "green", "purple", "blue")
+  )
+
+Results_SIER4
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+contact_rate = 7                      # Kontaktok napi száma
+transmission_probability = 0.05       # Átadás valószínűsége
+infectious_period = 5                 # Fertőző időszak
+latent_period = 2                     # Lappangási idő
+
+
+beta_value = contact_rate * transmission_probability
+gamma_value = 1 / infectious_period
+delta_value = 1 / latent_period
+
+
+Ro = beta_value / gamma_value
+
+parameter_list = c (beta = beta_value,
+                    gamma = gamma_value,
+                    delta = delta_value)
+
+W = 9917336        # Fogékonyak száma
+X = 1              # Fertőzöttek száma
+Y = 0              # Gyógyultak száma
+Z = 7              # Exponáltak száma
+
+N = W + X + Y + Z
+
+initial_values = c (
+  S = W / N,
+  E = X / N,
+  I = Y / N,
+  R = Z / N
+)
+
+timepoints5 = seq (0, 500, by = 1)
+
+output5 = lsoda (initial_values, timepoints, seir_model, parameter_list)
+
+#result 5
+Results_SIER5 <- output5
+write.table(Results_SIER5, "RES_SIER_TP005.txt")
+
+Results_SIER5 <- ggplot(data = NULL) +
+  geom_line(data = as.data.frame(Results_SIER5),
+            aes(
+              x = time,
+              y = S,
+              colour = "red",
+              group = 1
+            )) + geom_line(data = as.data.frame(Results_SIER5),
+                           aes(
+                             x = time,
+                             y = E,
+                             colour = "purple",
+                             group = 1
+                           )) + geom_line(data = as.data.frame(Results_SIER5),
+                                          aes(
+                                            x = time,
+                                            y = I,
+                                            colour = "green",
+                                            group = 1
+                                          )) + geom_line(data = as.data.frame(Results_SIER5),
+                                                         aes(
+                                                           x = time,
+                                                           y = R,
+                                                           colour = "blue",
+                                                           group = 1
+                                                         )) +
+  labs(
+    title = "Egyszerű SEIR modell",
+    x = "Idő (napok)",
+    y = "Prevalencia (%)",
+    color = "Állapot"
+  )  +
+  scale_color_manual(
+    labels = c("R", "I", "E", "S"),
+    values = c("red", "green", "purple", "blue")
+  )
+
+Results_SIER5
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+contact_rate = 7                      # Kontaktok napi száma
+transmission_probability = 0.045      # Átadás valószínűsége
+infectious_period = 5                 # Fertőző időszak
+latent_period = 2                     # Lappangási idő
+
+
+beta_value = contact_rate * transmission_probability
+gamma_value = 1 / infectious_period
+delta_value = 1 / latent_period
+
+
+Ro = beta_value / gamma_value
+
+parameter_list = c (beta = beta_value,
+                    gamma = gamma_value,
+                    delta = delta_value)
+
+W = 9917336        # Fogékonyak száma
+X = 1              # Fertőzöttek száma
+Y = 0              # Gyógyultak száma
+Z = 7              # Exponáltak száma
+
+N = W + X + Y + Z
+
+initial_values = c (
+  S = W / N,
+  E = X / N,
+  I = Y / N,
+  R = Z / N
+)
+
+timepoints6 = seq (0, 500, by = 1)
+
+output6 = lsoda (initial_values, timepoints, seir_model, parameter_list)
+
+#result 6
+Results_SIER6 <- output6
+write.table(Results_SIER6, "RES_SIER_TP0045.txt")
+
+Results_SIER6 <- ggplot(data = NULL) +
+  geom_line(data = as.data.frame(Results_SIER6),
+            aes(
+              x = time,
+              y = S,
+              colour = "red",
+              group = 1
+            )) + geom_line(data = as.data.frame(Results_SIER6),
+                           aes(
+                             x = time,
+                             y = E,
+                             colour = "purple",
+                             group = 1
+                           )) + geom_line(data = as.data.frame(Results_SIER6),
+                                          aes(
+                                            x = time,
+                                            y = I,
+                                            colour = "green",
+                                            group = 1
+                                          )) + geom_line(data = as.data.frame(Results_SIER6),
+                                                         aes(
+                                                           x = time,
+                                                           y = R,
+                                                           colour = "blue",
+                                                           group = 1
+                                                         )) +
+  labs(
+    title = "Egyszerű SEIR modell",
+    x = "Idő (napok)",
+    y = "Prevalencia (%)",
+    color = "Állapot"
+  )  +
+  scale_color_manual(
+    labels = c("R", "I", "E", "S"),
+    values = c("red", "green", "purple", "blue")
+  )
+
+Results_SIER6
+
+#::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+#plot I group only 
+
+plot (
+  xlab = "Idő (napok)",
+  ylab = "Prevalencia ",
+  I ~ time,
+  data = output,
+  type = 'l',
+  ylim = c(0, 0.5),
+  col =  "red",
+  lwd = 2
+)
+par (new = TRUE)
+plot (
+  xlab = "Idő (napok)",
+  ylab = "Prevalencia ",
+  I ~ time,
+  data = output2,
+  type = 'l',
+  ylim = c(0, 0.5),
+  col = 'orange',
+  lwd = 2
+)
+par (new = TRUE)
+plot (
+  xlab = "Idő (napok)",
+  ylab = "Prevalencia ",
+  I ~ time,
+  data = output3,
+  type = 'l',
+  ylim = c(0, 0.5),
+  col = 'green',
+  lwd = 2
+)
+par (new = TRUE)
+plot (
+  xlab = "Idő (napok)",
+  ylab = "Prevalencia ",
+  I ~ time,
+  data = output4,
+  type = 'l',
+  ylim = c(0, 0.5),
+  col = 'red3',
+  lwd = 2
+)
+par (new = TRUE)
+plot (
+  xlab = "Idő (napok)",
+  ylab = "Prevalencia ",
+  I ~ time,
+  data = output5,
+  type = 'l',
+  ylim = c(0, 0.5),
+  col = 'orange3',
+  lwd = 2
+)
+par (new = TRUE)
+plot (
+  xlab = "Idő (napok)",
+  ylab = "Prevalencia ",
+  I ~ time,
+  data = output6,
+  type = 'l',
+  ylim = c(0, 0.5),
+  col = 'green3',
+  lwd = 2
+)
+
+text(115, 0.185, "CR=7, TR=0.075",
+     cex = 0.5, col = 'red')
+text(170, 0.1, "CR=5, TR=0.075",
+     cex = 0.5, col = 'orange')
+text(255, 0.047, "CR=4, TR=0.075",
+     cex = 0.5, col = 'green')
+
+text(150, 0.125, "CR=7, TR=0.06",
+     cex = 0.5, col = 'red3')
+text(189, 0.08, "CR=7, TR=0.05",
+     cex = 0.5, col = 'orange3')
+text(232, 0.055, "CR=7, TR=0.045",
+     cex = 0.5, col = 'green3')
+
+legend(
+  "topright",
+  legend = c(
+    "Kontakszám: [7 / nap]  -  Állandó átadási arány",
+    "Kontakszám: [5 / nap]  -  Állandó átadási arány",
+    "Kontakszám: [4 / nap]  -  Állandó átadási arány ",
+    "Állandó kontaktszám    -  Átadási arány: 0,06  [ % ]",
+    "Állandó kontaktszám    -  Átadási arány: 0,05  [ % ]",
+    "Állandó kontaktszám    -  Átadási arány: 0,045 [ % ]"
+  ),
+  col = c("red", "orange", "green", "red3", "orange3", "green3"),
+  lty = 1:1,
+  cex = 0.9
+)
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+# A két védekezési mód kombinációja
+
+contact_rate = 5                      # Kontaktok napi száma
+transmission_probability = 0.055      # Átadás valószínűsége
+infectious_period = 5                 # Fertőző időszak
+latent_period = 2                     # Lappangási idő
+
+
+beta_value = contact_rate * transmission_probability
+gamma_value = 1 / infectious_period
+delta_value = 1 / latent_period
+
+
+Ro = beta_value / gamma_value
+
+parameter_list = c (beta = beta_value,
+                    gamma = gamma_value,
+                    delta = delta_value)
+
+W = 9917338        # Fogékonyak száma
+X = 1              # Fertőzöttek száma
+Y = 0              # Gyógyultak száma
+Z = 5              # Exponáltak száma
+
+N = W + X + Y + Z
+
+initial_values = c (
+  S = W / N,
+  E = X / N,
+  I = Y / N,
+  R = Z / N
+)
+
+timepoints7 = seq (0, 500, by = 1)
+
+output7 = lsoda (initial_values, timepoints, seir_model, parameter_list)
+
+#result 7
+Results_SIER7 <- output7
+write.table(Results_SIER7, "RES_SIER_CR_5_TP0055.txt")
+
+Results_SIER7 <- ggplot(data = NULL) +
+  geom_line(data = as.data.frame(Results_SIER7),
+            aes(
+              x = time,
+              y = S,
+              colour = "red",
+              group = 1
+            )) + geom_line(data = as.data.frame(Results_SIER7),
+                           aes(
+                             x = time,
+                             y = E,
+                             colour = "purple",
+                             group = 1
+                           )) + geom_line(data = as.data.frame(Results_SIER7),
+                                          aes(
+                                            x = time,
+                                            y = I,
+                                            colour = "green",
+                                            group = 1
+                                          )) + geom_line(data = as.data.frame(Results_SIER7),
+                                                         aes(
+                                                           x = time,
+                                                           y = R,
+                                                           colour = "blue",
+                                                           group = 1
+                                                         )) +
+  labs(
+    title = "Egyszerű SEIR modell",
+    x = "Idő (napok)",
+    y = "Prevalencia (%)",
+    color = "Állapot"
+  )  +
+  scale_color_manual(
+    labels = c("R", "I", "E", "S"),
+    values = c("red", "green", "purple", "blue")
+  )
+
+Results_SIER7
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+plot (
+  xlab = "Idő (napok)",
+  ylab = "Prevalencia",
+  I ~ time,
+  data = output,
+  type = 'l',
+  ylim = c(0, 0.3),
+  col = 'red',
+  lwd = 2
+)
+par (new = TRUE)
+plot (
+  xlab = "Idő (napok)",
+  ylab = "Prevalencia",
+  I ~ time,
+  data = output2,
+  type = 'l',
+  ylim = c(0, 0.3),
+  col = 'red1',
+  lwd = 2
+)
+par (new = TRUE)
+plot (
+  xlab = "Idő (napok)",
+  ylab = "Prevalencia",
+  I ~ time,
+  data = output3,
+  type = 'l',
+  ylim = c(0, 0.3),
+  col = 'red2',
+  lwd = 2
+)
+par (new = TRUE)
+plot (
+  xlab = "Idő (napok)",
+  ylab = "Prevalencia",
+  I ~ time,
+  data = output4,
+  type = 'l',
+  ylim = c(0, 0.3),
+  col = 'blue1',
+  lwd = 2
+)
+par (new = TRUE)
+plot (
+  xlab = "Idő (napok)",
+  ylab = "Prevalencia",
+  I ~ time,
+  data = output5,
+  type = 'l',
+  ylim = c(0, 0.3),
+  col = 'blue2',
+  lwd = 2
+)
+par (new = TRUE)
+plot (
+  xlab = "Idő (napok)",
+  ylab = "Prevalencia",
+  I ~ time,
+  data = output6,
+  type = 'l',
+  ylim = c(0, 0.3),
+  col = 'blue3',
+  lwd = 2
+)
+par (new = TRUE)
+plot (
+  xlab = "Idő (napok)",
+  ylab = "Prevalencia",
+  I ~ time,
+  data = output7,
+  type = 'l',
+  ylim = c(0, 0.3),
+  col = 'green',
+  lwd = 2
+)
+
+
+text(255, 0.047, "CR=4, TR=0.075",
+     cex = 0.5, col = 'red1')
+text(115, 0.185, "CR=7, TR=0.075",
+     cex = 0.5, col = 'red2')
+text(170, 0.1, "CR=5, TR=0.075",
+     cex = 0.5, col = 'red3')
+
+text(150, 0.125, "CR=7, TR=0.06",
+     cex = 0.5, col = 'blue1')
+text(189, 0.08, "CR=7, TR=0.05",
+     cex = 0.5, col = 'blue2')
+text(232, 0.055, "CR=7, TR=0.045",
+     cex = 0.5, col = 'blue3')
+
+text(325, 0.032, "CR=5, TR=0.05",
+     cex = 0.5, col = 'green')
+# text(330, 0.032, "CR=6, TR=0.045",
+# cex = 0.5,
+# col = 'green')
+
+
+legend(
+  "topright",
+  legend = c(
+    "Csökkenő kontakszám   -  Állandó átadási arány",
+    "Állandó kontaktszám   -  Csökkenő átadási arány",
+    "Mérsékelt kontaktszám -  Mérsékelt átadási arány"
+  ),
+  col = c("red", "blue", "green"),
+  lty = 1:1,
+  cex = 0.7
+)
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+fit <- data.frame(output2)
+
+# Jávány csúcsa és a fertőzöttek száma
+fit[fit$I == max(fit$I), "I", drop = FALSE]
+
+# intenzív ellátásra szoruló esetek száma a járvány csúcsán
+max_infected <- max(fit$I)
+max_infected  * 0.06 * 9917344
+
+
+# Elhunytak száma a járvány csúcsán (2,2 letalitási arányt feltételezve)
+max_infected * 0.033 * 9917344
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+#Kombinált védekezés esetén
+fit2 <- data.frame(output3)
+
+# Jávány csúcsa és a fertőzöttek száma
+peak_day <- fit2[fit2$I == max(fit2$I), "I", drop = FALSE]
+
+
+
+# intenzív ellátásra szoruló esetek száma a járvány csúcsán
+max_infected <- max(fit2$I)
+max_infected  * 0.06 * 9917344
+
+
+# Elhunytak száma a járvány csúcsán (2,2 letalitási arányt feltételezve)
+max_infected * 0.033 * 9917344
+
+
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+#CP and TP compare
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+solve_SEIR <- function(cr, tp, model_time_points = 500) {
+  contact_rate = cr                          # Kontaktok napi száma
+  transmission_probability = tp                # Átadás valószínűsége
+  
+  infectious_period = 5                               # Fertőző időszak
+  latent_period = 2                                    # Lappangási idő
+  
+  
+  beta_value = contact_rate * transmission_probability
+  gamma_value = 1 / infectious_period
+  delta_value = 1 / latent_period
+  
+  
+  Ro = beta_value / gamma_value
+  
+  parameter_list = c (beta = beta_value,
+                      gamma = gamma_value,
+                      delta = delta_value)
+  
+  W = 9917338        # Fogékonyak száma
+  X = 1              # Fertőzöttek száma
+  Y = 0              # Gyógyultak száma
+  Z = 5              # Exponáltak száma
+  
+  N = W + X + Y + Z
+  
+  initial_values2 = c (
+    S = W / N,
+    E = X / N,
+    I = Y / N,
+    R = Z / N
+  )
+  
+  timepoints = seq (0, model_time_points, by = 1)
+  
+  output = lsoda (initial_values2, timepoints, seir_model, parameter_list)
+  
+  #modell result ---------------------------------------------------------------
+  Results_SIER <- output
+  write.table(Results_SIER, "RES_SIER_SD_ef.txt")
+  return(Results_SIER)
+}
+
+
+#function to compare------------------------------------------------------------
+effeciveness_CR_TP <-
+  function(start_CR = 0.5,
+           start_TP = 0.5,
+           TP_step = 0.5,
+           CR_step = 0.5,
+           desired_seq_lenght = 10) {
+    # 100 érték mellett 5-6 perc a lefutási ideje. 
+    
+    start_time <- Sys.time()
+    
+    #init seqs
+    CR_seq = seq(from = start_CR,
+                 by = CR_step,
+                 length.out = desired_seq_lenght)
+    TP_seq = seq(from = start_TP,
+                 by = TP_step,
+                 length.out = desired_seq_lenght)
+    
+    #init df
+    result_table <-
+      data.frame(
+        "peak_day" = integer(),
+        "peak_prev" = double(),
+        "CR" = double(),
+        "TP" = double()
+      )
+    
+    #fill TP and CR
+    total <- 1
+    for (i in 1:desired_seq_lenght) {
+      for (j in 1:desired_seq_lenght) {
+        result_table[total, 4] <- CR_seq[i]
+        result_table[total, 3] <- TP_seq[j]
+        total <- total + 1
+        
+        
+        
+      }
+    }
+    print(paste("df filled with ", total, " rows"))
+    
+    #feed pharams to SEIR model ------------------------------------------------
+    for (row in 1:nrow(result_table)) {
+      tmp_cr <- result_table[row, 3]
+      tmp_tp <- result_table[row, 4]
+      
+      #model result
+      tmp_model_result <-
+        as.data.frame(solve_SEIR(cr = tmp_cr, tp = tmp_tp))
+      
+      #extract values from model result-----------------------------------------
+      
+      peak <-
+        tmp_model_result[tmp_model_result$I == max(tmp_model_result$I), "I", drop = FALSE]
+      
+      result_table[row, 1] <- as.integer(row.names(peak))
+      
+      result_table[row, 2] <- peak[1, 1]
+      
+      
+    }
+    
+    end_time <- Sys.time()
+    total_time <- end_time - start_time
+    print(paste("Total running time is: ", total_time, " [minutes]"))
+    return(result_table)
+  }
+
+
+CP_TP.result_df <- effeciveness_CR_TP(start_CR = 0.5,   #kontakt ráta kezdő értéke
+                                      start_TP = 0.5,   #átadási valószínűség kezdő értéke
+                                      TP_step = 0.5,    #átadási valószínűség léps méret 
+                                      CR_step = 0.5,    #kontakt ráta léps méret 
+                                      desired_seq_lenght = 10) #szekvencia hosszúság 
+
+
+# plot it
+plot_results <- ggplot(data = NULL) +
+  geom_line(data = as.data.frame(CP_TP.result_df),
+            aes(
+              x = peak_prev,
+              y = CR,
+              colour = "red",
+              group = 1
+            )) + geom_line(data = as.data.frame(CP_TP.result_df),
+                           aes(
+                             x = peak_prev,
+                             y = TP,
+                             colour = "purple",
+                             group = 1
+                           ))  +
+  scale_color_manual(
+    labels = c("kontakt ráta", "átadási valószínűség"),
+    values = c("red", "purple")
+  ) +
+  labs(
+    title = "Átadási vallószínűség és kontakt ráta",
+    x = "Járvány csúcs prevalenciája",
+    y = "",
+    color = "Jelmagyarázat"
+  )
+plot_results
