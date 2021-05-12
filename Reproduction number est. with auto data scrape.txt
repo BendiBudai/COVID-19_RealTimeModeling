@@ -312,71 +312,7 @@ plot_new_deaths <-
                                                                                              linetype = "dotted"
                                                                                            )
 plot_new_deaths
-#-----WORK IN PROGRESS...----------------------------------------------------------------------------------------------------------------------------
-# A halálesetek simító görbéje + predikció
-# lst  <-
-#   covid_data_hun[(nrow(covid_data_hun) - 13):nrow(covid_data_hun), ]
-#
-# lst <-
-#   lst %>% select(date,new_deaths)
-#
-#
-#
-# glm <- glm(new_deaths ~ as.Date(date), family = poisson(link = "log"), data = lst)
-#
-# date <- tail(lst, n = 1)
-#
-# mydate <- as.Date(date$date)
-#
-# pred <- predict(glm,
-#                 newdata = data.frame(date = seq(
-#                   as.Date(mydate - 59), as.Date(mydate + 10), by = "days"
-#                 )),
-#                 type = "response",
-#                 se.fit = TRUE)
-#
-# critval <- 1.96 ## approx 95% CI
-# upr <- pred$fit + (critval * pred$se.fit)
-# lwr <- pred$fit - (critval * pred$se.fit)
-# fit <- pred$fit
-#
-# prediction <- data.frame(dates=seq(as.Date(mydate-59), as.Date(mydate+10), by="days"), fit, lwr, upr)
-#
-# plot_test_new_deaths_prediction <-
-#   ggplot(covid_data_hun, aes(x = date, y = new_deaths)) + geom_point() + stat_smooth(method = "gam", formula = y ~ s(x, k = 14)) +
-#   geom_ribbon(
-#     data = prediction,
-#     aes(
-#       y = fit,
-#       ymin = lwr,
-#       ymax = upr,
-#       fill = "white"
-#     ),
-#     alpha = 0.3,
-#     show.legend = FALSE
-#   ) + geom_line(
-#     data = prediction,
-#     aes(x = dates, y = fit),
-#     color = "red",
-#     show.legend = FALSE
-#   ) +
-#   annotate(
-#     "rect",
-#     ymin = -Inf,
-#     ymax = Inf,
-#     xmin = mydate - 13,
-#     xmax = mydate,
-#     alpha = 0.1,
-#     fill = "orange"
-#    ) +
-#    scale_x_date(
-#      date_breaks = "1 month",
-#      date_labels = "%b-%Y",
-#      date_minor_breaks = "1 week"
-#    )
-#
-# plot_test_new_deaths_prediction
-#---------------------------------------------------------------------------------------------------------------------------------
+
 #3) tesztpozitivás simító görbéje
 plot_test_positive_rate <-
   ggplot(covid_data_hun,
